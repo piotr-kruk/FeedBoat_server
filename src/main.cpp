@@ -1,13 +1,29 @@
 #include <ESP8266WiFi.h>
+#include <stdint.h>
 
 #define SERVO_PIN 0
 #define LED_PIN 3
-#define ENGINE_DIRECTION_PIN 2
-#define ENGINE_POWER_PIN 1
+#define MOTOR_DRIVE_DIRECTION_PIN 2
+#define MOTOR_POWER_PIN 1
 #define DEBUG 0
 #define WIFI_AP_MODE 1
 #define CONTROLLER_CONNECTED_LED_TIME 500
 
+#define BOAT_DIRECTION_STRAIGHT 19
+#define BOAT_DIRECTION_LEFT 29
+#define BOAT_DIRECTION_RIGHT 9
+#define MOTOR_DRIVE_DIRECTION_FORWARD 1
+#define MOTOR_DRIVE_DIRECTION_BACKWARD 0
+#define MOTOR_RUN 1
+#define MOTOR_STOP 0
+#define FEEDER_OPEN 1
+#define FEEDER_CLOSED 0
+#define LIGHTS_ON 1
+#define LIGHTS_OFF 0
+#define GPS_ON 1
+#define GPS_OFF 0
+
+#define MESSAGE_INTERVAL 5000UL
 
 #if DEBUG
 #define debug(x) Serial.print(x)
@@ -17,7 +33,7 @@
 #define debugln(x) 
 #endif
 
-int port = 65432;  //Port number
+uint16_t port = 65432;  //Port number
 WiFiServer server(port);
 
 #if WIFI_AP_MODE
@@ -33,36 +49,33 @@ IPAddress subnet(255, 255, 255, 0);  //Subnet mask
 
 String setts = "";
 
-struct Pole
+union ControlRegister
 {
-  unsigned char boatDirection : 5;
-  unsigned char motorDriveDirection : 1;
-  unsigned char motorDriveSpeed : 1;
-  unsigned char feederState : 1;
+    uint8_t hexValue;
+    struct
+    {
+      uint8_t boatDirection : 5;
+      uint8_t motorDriveDirection : 1;
+      uint8_t motorDriveSpeed : 1;
+      uint8_t feederState : 1;
+    };
 };
 
-union Unia
-{
-    unsigned char hexVal;
-    Pole vars;
-};
+ControlRegister vehicleSettings;
 
-Unia vehicleSettings;
-
-int msgTime = 0;
-int msgInterval = 5000;
+uint32_t msgTime = 0;
 
 //=======================================================================
 //                    Power on setup
 //=======================================================================
 void setup() 
 {
-  pinMode(ENGINE_DIRECTION_PIN, OUTPUT);
-  digitalWrite(ENGINE_DIRECTION_PIN, HIGH);
+  pinMode(MOTOR_DRIVE_DIRECTION_PIN, OUTPUT);
+  digitalWrite(MOTOR_DRIVE_DIRECTION_PIN, MOTOR_DRIVE_DIRECTION_FORWARD);
   
-  pinMode(ENGINE_POWER_PIN, FUNCTION_3);
-  pinMode(ENGINE_POWER_PIN, OUTPUT);
-  digitalWrite(ENGINE_POWER_PIN, LOW);
+  pinMode(MOTOR_POWER_PIN, FUNCTION_3);
+  pinMode(MOTOR_POWER_PIN, OUTPUT);
+  digitalWrite(MOTOR_POWER_PIN, MOTOR_STOP);
   
   pinMode(LED_PIN, FUNCTION_3);
   pinMode(LED_PIN, OUTPUT);
@@ -70,7 +83,7 @@ void setup()
 
   pinMode(SERVO_PIN, OUTPUT);
   analogWriteFreq(50);
-  analogWrite(SERVO_PIN, 19); //center pos
+  analogWrite(SERVO_PIN, BOAT_DIRECTION_STRAIGHT);
 
   #if DEBUG
     Serial.begin(115200);
@@ -113,7 +126,7 @@ void setup()
 
 void loop() 
 {
-  WiFiClient client = server.available();
+  WiFiClient client = server.accept();
   
   if (client)
   {
@@ -134,22 +147,21 @@ void loop()
         setts = client.readStringUntil('h');
         debug(setts);
 
-        vehicleSettings.hexVal = strtoul(setts.c_str(), NULL, 16);
+        vehicleSettings.hexValue = strtoul(setts.c_str(), NULL, 16);
         
-        //digitalWrite(LED_PIN, !(vehicleSettings.vars.lightsState));
-        analogWrite(SERVO_PIN, vehicleSettings.vars.boatDirection);
-        digitalWrite(ENGINE_DIRECTION_PIN, vehicleSettings.vars.motorDriveDirection);
-        digitalWrite(ENGINE_POWER_PIN, vehicleSettings.vars.motorDriveSpeed);
+        analogWrite(SERVO_PIN, vehicleSettings.boatDirection);
+        digitalWrite(MOTOR_DRIVE_DIRECTION_PIN, vehicleSettings.motorDriveDirection);
+        digitalWrite(MOTOR_POWER_PIN, vehicleSettings.motorDriveSpeed);
           
         msgTime = millis();
       }
         
-      if(millis() >= msgTime + msgInterval)
+      if(millis() >= ((unsigned long)msgTime + MESSAGE_INTERVAL))
       {
         digitalWrite(LED_PIN, 1);
-        analogWrite(SERVO_PIN, 19);
-        digitalWrite(ENGINE_DIRECTION_PIN, 1);
-        digitalWrite(ENGINE_POWER_PIN, 0);
+        analogWrite(SERVO_PIN, BOAT_DIRECTION_STRAIGHT);
+        digitalWrite(MOTOR_DRIVE_DIRECTION_PIN, MOTOR_DRIVE_DIRECTION_FORWARD);
+        digitalWrite(MOTOR_POWER_PIN, MOTOR_STOP);
         
         digitalWrite(LED_PIN, LOW);
         delay(CONTROLLER_CONNECTED_LED_TIME/2);
